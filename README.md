@@ -1,28 +1,46 @@
-## Lab Overview
+# 🚀 TensorFlow Serving on GKE with Autoscaling
 
-TBD
+This project demonstrates how to deploy a TensorFlow model using TensorFlow Serving on Google Kubernetes Engine (GKE) with Horizontal Pod Autoscaler based on CPU utilization. It also includes performance testing using Locust.
 
-TF Serving is deployed as a Kubernetes Deployment and exposed as a Kubernetes Service. 
-The number of replicas in the deployment is controlled by Horizontal Pod Autoscaler based on 
-the CPU utilization metrics.
+---
 
+## 📦 Getting Started
 
-## Setup and Requirements
+### 1. Clone the Repository in Google Cloud Shell
 
-Set the default compute zone
+Start by cloning this repository into your Cloud Shell:
 
+```bash
+git clone https://github.com/Pradeep-Gopi-E/tfserving-gke-autoscaling.git
+cd tfserving-gke-autoscaling
 ```
-PROJECT_ID=jk-mlops-dev
+
+> **Note:** Use a GitHub Personal Access Token (PAT) when prompted for a password if you encounter authentication issues. Learn more: [Creating a personal access token](https://docs.github.com/en/github/authenticating-to-github/creating-a-personal-access-token).
+
+---
+
+## ⚙️ Setup and Requirements
+
+### 2. Set your GCP Project ID and Compute Zone
+
+In Cloud Shell, configure your Google Cloud project and default compute zone. Replace `your-gcp-project-id` with your actual project ID.
+
+```bash
+PROJECT_ID=your-gcp-project-id
 gcloud config set project $PROJECT_ID
 gcloud config set compute/zone us-central1-f
 ```
 
-## Creating a Kubernetes cluster
 
-To create a new cluster with 3 nodes in the default node pool, run the following command.
+---
 
+## ☸️ Create Kubernetes Cluster
 
-```
+### 3. Create a GKE Cluster with Autoscaling
+
+Create a new GKE cluster. This command sets up a cluster with autoscaling enabled, specifying the minimum and maximum number of nodes.
+
+```bash
 CLUSTER_NAME=lab1-cluster
 
 gcloud beta container clusters create $CLUSTER_NAME \
@@ -31,95 +49,137 @@ gcloud beta container clusters create $CLUSTER_NAME \
   --enable-autoscaling \
   --min-nodes=1 \
   --max-nodes=3 \
-  --num-nodes=1 
+  --num-nodes=1
 ```
 
-Check that the cluster is up and running
+### 4. Get Cluster Credentials and List Nodes
 
-```
-gcloud container clusters list
-```
+Once the cluster is created, get the credentials to interact with it using `kubectl` and list the nodes to verify the setup.
 
-Get the credentials for you new cluster so you can interact with it using `kubectl`.
-
-```
-gcloud container clusters get-credentials $CLUSTER_NAME 
-```
-
-List the cluster's nodes.
-
-```
+```bash
+gcloud container clusters get-credentials $CLUSTER_NAME
 kubectl get nodes
 ```
 
-Notice that the cluster has only one node.
 
+---
 
+## 📦 Deploy TensorFlow Model to GKE
 
+### 5. Apply ConfigMap for Model Path
 
-## Deploying a model.
+The ConfigMap tells TensorFlow Serving where to find the model.
 
-
-Update and create the ConfigMap with the resnet_serving model location.
-
-```
+```bash
 kubectl apply -f tf-serving/configmap.yaml
 ```
 
-Create TF Serving Deployment.
+### 6. Deploy TensorFlow Serving
 
-```
+Deploy the TensorFlow Serving image as a deployment in your GKE cluster.
+
+```bash
 kubectl apply -f tf-serving/deployment.yaml
 ```
 
+### 7. Expose the Deployment as a LoadBalancer Service
 
-Create  TF Serving Service.
+Create a service of type LoadBalancer to expose the TensorFlow Serving deployment to the internet.
 
-```
+```bash
 kubectl apply -f tf-serving/service.yaml
 ```
 
-Get the external address for the TF Serving service
+### 8. Get External IP Address
 
-```
+Wait for a few minutes for the LoadBalancer to provision an external IP address for your service.
+
+```bash
 kubectl get svc image-classifier
 ```
 
-Verify that the model is up and operational.
+Look for the `EXTERNAL-IP` value in the output. You might need to run this command a few times until the IP is assigned.
 
-```
+
+---
+
+## ✅ Test Model Deployment
+
+### 9. Send a Prediction Request
+
+Once you have the `EXTERNAL_IP`, send a sample prediction request using `curl`. Make sure to replace `[EXTERNAL_IP]` with the actual IP address you obtained in the previous step.
+
+```bash
 curl -d @locust/request-body.json -X POST http://[EXTERNAL_IP]:8501/v1/models/image_classifier:predict
 ```
 
-Configure Horizontal Pod Autoscaler.
 
-```
+---
+
+## 📈 Set Up Horizontal Pod Autoscaler (HPA)
+
+### 10. Create Horizontal Pod Autoscaler
+
+Configure HPA to automatically scale your `image-classifier` deployment based on CPU utilization. The target CPU utilization is 60%, and the number of replicas will scale between 1 and 4.
+
+```bash
 kubectl autoscale deployment image-classifier --cpu-percent=60 --min=1 --max=4
 ```
 
-Check the status of the autoscaler.
+### 11. Check HPA Status
 
-```
+Verify the HPA has been created and see its current status.
+
+```bash
 kubectl get hpa
 ```
 
+---
 
+## 🧪 Load Test with Locust
 
-## Load test the model
+### 12. Run Locust Load Test
 
-```
+Navigate to the `locust` directory and run the load test in headless mode. Replace `[EXTERNAL_IP]` with your service's external IP. This command will gradually increase the load.
+
+```bash
 cd locust
-locust -f tasks.py --headless --users 32 --spawn-rate 1 --step-load --step-users 1 --step-time 30s --host http://[EXTERNAL_IP]:8501
+locust -f tasks.py \
+  --headless \
+  --users 32 \
+  --spawn-rate 1 \
+  --step-load \
+  --step-users 1 \
+  --step-time 30s \
+  --host http://[EXTERNAL_IP]:8501
 ```
 
-Observe the TF Serving Deployment in GKE dashboard.
 
-```
-https://console.cloud.google.com/kubernetes/deployment/us-central1-f/lab1-cluster/default/image-classifier/overview
-```
+---
 
-Observe the default node-pool
+## 🎛️ GKE Monitoring 
 
-```
-https://console.cloud.google.com/kubernetes/nodepool/us-central1-f/lab1-cluster/default-pool
-```
+- **Workloads View**: Navigate to your GKE cluster in the GCP Console, then go to "Workloads" to see your `image-classifier` deployment and the number of pods.
+
+- **Node Pools View**: Check the "Node Pools" section for your cluster to see if new nodes were provisioned to handle the increased load.
+![Screenshot 2025-05-07 203637](https://github.com/user-attachments/assets/227fd839-083d-4058-9355-5092c1e90078)
+
+
+
+---
+
+
+
+---
+
+## 📚 References
+
+- [TensorFlow Serving Documentation](https://www.tensorflow.org/tfx/guide/serving)
+- [Google Kubernetes Engine (GKE) Documentation](https://cloud.google.com/kubernetes-engine/docs)
+- [Google Cloud Labs](https://www.cloudskillsboost.google/focuses/17649?parent=catalog)
+- [Horizontal Pod Autoscaler (HPA)](https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/)
+- [Locust Load Testing](https://locust.io/)
+
+---
+
+
